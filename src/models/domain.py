@@ -26,23 +26,34 @@ class StoolColor(enum.Enum):
 
 class GrowthStandard(Base):
     """
-    질병관리청 소아청소년 성장도표 (키, 몸무게, 머리둘레)
-    백분위수(Percentile) 데이터를 저장하여 비교 분석에 사용
+    질병관리청 소아청소년 성장도표 (키, 몸무게, 머리둘레, BMI)
+    LMS 파라미터 및 백분위수(Percentile) 데이터를 저장
     """
     __tablename__ = 'growth_standards'
 
     id = Column(Integer, primary_key=True, index=True)
-    gender = Column(Enum(Gender), nullable=False, index=True)
-    month_age = Column(Integer, nullable=False, index=True) # 월령 (0, 1, 2...)
+    chart_type = Column(String, nullable=False, index=True) # 'height_for_age', 'weight_for_age', etc.
+    gender = Column(Integer, nullable=False, index=True)    # 1: Male, 2: Female
+    age_months = Column(Float, nullable=True, index=True)
+    height_cm = Column(Float, nullable=True, index=True)    # Used for weight_for_height
     
-    # 표준 수치 (중앙값 - 50th percentile)
-    height_median = Column(Float, nullable=True) # cm
-    weight_median = Column(Float, nullable=True) # kg
-    head_circ_median = Column(Float, nullable=True) # cm
+    # LMS 파라미터
+    l = Column(Float, nullable=True)
+    m = Column(Float, nullable=True)
+    s = Column(Float, nullable=True)
     
-    # 분포 데이터 (상위 3%, 97% 등 범위 판단용 JSON으로 저장 가능하나, 핵심 지표는 컬럼화)
-    # 필요에 따라 p3, p5, p10, p25, p50, p75, p90, p95, p97 컬럼 추가 가능
-    data_json = Column(Text, nullable=True) # 전체 백분위수 데이터 JSON 저장
+    # 주요 백분위수
+    p3 = Column(Float, nullable=True)
+    p5 = Column(Float, nullable=True)
+    p10 = Column(Float, nullable=True)
+    p25 = Column(Float, nullable=True)
+    p50 = Column(Float, nullable=True)
+    p75 = Column(Float, nullable=True)
+    p90 = Column(Float, nullable=True)
+    p95 = Column(Float, nullable=True)
+    p97 = Column(Float, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.now)
 
 class VaccineSchedule(Base):
     """
