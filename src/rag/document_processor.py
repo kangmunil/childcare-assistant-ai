@@ -9,7 +9,8 @@ import os
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from loguru import logger
-from dotenv import load_dotenv
+# from dotenv import load_dotenv # 제거
+from src.core.config import settings
 
 # LangChain imports
 from langchain_community.document_loaders import (
@@ -19,10 +20,11 @@ from langchain_community.document_loaders import (
 )
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
+from src.rag.embeddings import OpenRouterEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
 
-load_dotenv()
+# load_dotenv() # 제거
 
 
 class DocumentProcessor:
@@ -50,35 +52,31 @@ class DocumentProcessor:
             chunk_overlap: 청크 간 중복 크기
             persist_directory: ChromaDB 저장 경로
         """
-        self.embedding_model = embedding_model or os.getenv(
-            "EMBEDDING_MODEL",
-            "text-embedding-3-small"
-        )
+        self.embedding_model = embedding_model or settings.EMBEDDING_MODEL
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        self.persist_directory = persist_directory or os.getenv(
-            "CHROMA_PERSIST_DIRECTORY",
-            "./data/chroma_db"
-        )
-
-        # OpenRouter 지원
-        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
-        base_url = os.getenv("OPENAI_API_BASE")
-        
-        if os.getenv("OPENROUTER_API_KEY") and not base_url:
-            base_url = "https://openrouter.ai/api/v1"
+        self.persist_directory = persist_directory or settings.CHROMA_PERSIST_DIRECTORY
 
         # 임베딩 모델 초기화
-        if "text-embedding-3" in self.embedding_model:
-            # OpenAI / OpenRouter
-            if not api_key:
+        if not settings.IS_LOCAL_EMBEDDING:
+            # API 기반 (OpenAI or OpenRouter)
+            if settings.EFFECTIVE_API_KEY == "MISSING_API_KEY":
                 logger.warning("API Key not found for embeddings.")
 
-            self.embeddings = OpenAIEmbeddings(
-                model=self.embedding_model,
-                openai_api_key=api_key,
-                base_url=base_url
-            )
+            if "openrouter.ai" in settings.EFFECTIVE_API_BASE:
+                logger.info(f"Initializing OpenRouter Embeddings: {self.embedding_model}")
+                self.embeddings = OpenRouterEmbeddings(
+                    model=self.embedding_model,
+                    api_key=settings.EFFECTIVE_API_KEY,
+                    base_url=settings.EFFECTIVE_API_BASE
+                )
+            else:
+                logger.info(f"Initializing OpenAI Embeddings: {self.embedding_model}")
+                self.embeddings = OpenAIEmbeddings(
+                    model=self.embedding_model,
+                    openai_api_key=settings.EFFECTIVE_API_KEY,
+                    base_url=settings.EFFECTIVE_API_BASE
+                )
         else:
             # HuggingFace Local (OpenSource)
             try:

@@ -88,7 +88,7 @@ def main():
     }
     
     # Create a mapping of stripped sheet names to actual sheet names
-    actual_sheets = {s.strip(): s for s in xl.sheet_names}
+    actual_sheets = {str(s).strip(): s for s in xl.sheet_names}
     
     for sheet_key, config in sheet_configs.items():
         stripped_key = sheet_key.strip()

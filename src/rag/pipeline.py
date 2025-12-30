@@ -19,16 +19,18 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from src.rag.embeddings import OpenRouterEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_community.retrievers import BM25Retriever
 from langchain.retrievers import EnsembleRetriever
-from dotenv import load_dotenv
+# from dotenv import load_dotenv # 제거
+from src.core.config import settings
 
 # 환경 변수 로드
-load_dotenv()
+# load_dotenv() # 제거
 
 # 로깅 설정
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=settings.LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class SafetyFilter:
@@ -119,30 +121,33 @@ class DataPipeline:
     Raw Data -> Cleaning -> Metadata -> Chunking -> Embedding -> VectorStore
     """
 
-    def __init__(self, persist_dir: str = "./data/chroma_db"):
-        self.persist_dir = persist_dir
+    def __init__(self, persist_dir: str = None):
+        self.persist_dir = persist_dir or settings.CHROMA_PERSIST_DIRECTORY
         # [Step 4: Embedding Model]
         
-        embedding_model_name = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+        embedding_model_name = settings.EMBEDDING_MODEL
         logger.info(f"Using Embedding Model: {embedding_model_name}")
 
         # HuggingFace 로컬 모델인지 확인 (예: intfloat/...)
-        if "text-embedding-3" in embedding_model_name:
-            # OpenAI / OpenRouter
-            api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
-            base_url = os.getenv("OPENAI_API_BASE")
-            
-            if os.getenv("OPENROUTER_API_KEY") and not base_url:
-                base_url = "https://openrouter.ai/api/v1"
+        if not settings.IS_LOCAL_EMBEDDING:
+            # API 기반 (OpenAI or OpenRouter)
+            if settings.EFFECTIVE_API_KEY == "MISSING_API_KEY":
+                logger.warning("API Key not found for embeddings.")
 
-            if not api_key:
-                logger.warning("API Key not found for OpenAI embeddings.")
-
-            self.embeddings = OpenAIEmbeddings(
-                model=embedding_model_name,
-                openai_api_key=api_key,
-                base_url=base_url
-            )
+            if "openrouter.ai" in settings.EFFECTIVE_API_BASE:
+                logger.info(f"Initializing OpenRouter Embeddings: {embedding_model_name}")
+                self.embeddings = OpenRouterEmbeddings(
+                    model=embedding_model_name,
+                    api_key=settings.EFFECTIVE_API_KEY,
+                    base_url=settings.EFFECTIVE_API_BASE
+                )
+            else:
+                logger.info(f"Initializing OpenAI Embeddings: {embedding_model_name}")
+                self.embeddings = OpenAIEmbeddings(
+                    model=embedding_model_name,
+                    openai_api_key=settings.EFFECTIVE_API_KEY,
+                    base_url=settings.EFFECTIVE_API_BASE
+                )
         else:
             # HuggingFace Local (OpenSource)
             logger.info("Initializing Local HuggingFace Embeddings...")

@@ -1,18 +1,13 @@
 from src.rag.childcare_agent import ChildcareAgent
 from loguru import logger
-from dotenv import load_dotenv
+from src.core.config import settings
 import os
 import sys
 
 def main():
-    # 환경 변수 로드 디버깅
-    env_path = os.path.join(os.getcwd(), '.env')
-    loaded = load_dotenv(dotenv_path=env_path, override=True)
-    
     logger.info("ChatBot 종합 테스트를 시작합니다.")
-    logger.info(f"Loading .env from: {env_path}")
-    logger.info(f"load_dotenv result: {loaded}")
-    logger.info(f"Current LLM_MODEL: {os.getenv('LLM_MODEL')}")
+    logger.info(f"Using LLM_MODEL from settings: {settings.LLM_MODEL}")
+    logger.info(f"Using EMBEDDING_MODEL from settings: {settings.EMBEDDING_MODEL}")
     
     # 에이전트 초기화
     try:

@@ -23,6 +23,8 @@ from langchain.schema import HumanMessage, SystemMessage
 from langchain_core.pydantic_v1 import BaseModel, Field
 
 # 프로젝트 모듈
+from src.core.config import settings
+from src.prompts.templates import prompt_loader
 from src.rag.document_processor import DocumentProcessor
 from src.collectors.public_api_collector import (
     ChildcareAPICollector,
@@ -33,8 +35,7 @@ from src.analysis.growth_analyzer import GrowthAnalyzer
 from datetime import date, datetime
 import json
 
-load_dotenv()
-
+# load_dotenv() # config.py에서 처리하므로 제거
 
 # ========================================
 # Tool 입력 스키마 정의
@@ -84,26 +85,20 @@ class ChildcareAgent:
             temperature: 온도 (0.0~1.0)
             vector_collection: 벡터 DB 컬렉션 이름
         """
-        self.model_name = model_name or os.getenv("LLM_MODEL", "gpt-4-turbo-preview")
-        self.temperature = temperature or float(os.getenv("LLM_TEMPERATURE", "0.7"))
+        self.model_name = model_name or settings.LLM_MODEL
+        self.temperature = temperature or settings.LLM_TEMPERATURE
         self.vector_collection = vector_collection
 
-        # OpenRouter 지원
-        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
-        base_url = os.getenv("OPENAI_API_BASE")
-        
-        if os.getenv("OPENROUTER_API_KEY") and not base_url:
-            base_url = "https://openrouter.ai/api/v1"
-
-        if not api_key:
+        # API Key 유효성 검사
+        if settings.EFFECTIVE_API_KEY == "MISSING_API_KEY":
             logger.warning("API Key not found. Please set OPENROUTER_API_KEY or OPENAI_API_KEY.")
 
         # LLM 초기화
         self.llm = ChatOpenAI(
             model=self.model_name,
             temperature=self.temperature,
-            openai_api_key=api_key,
-            base_url=base_url
+            openai_api_key=settings.EFFECTIVE_API_KEY,
+            base_url=settings.EFFECTIVE_API_BASE
         )
 
         # Document Processor 초기화
@@ -329,26 +324,8 @@ class ChildcareAgent:
         Returns:
             AgentExecutor
         """
-        # 시스템 프롬프트
-        system_prompt = """당신은 육아 전문 AI 비서입니다.
-
-역할:
-- 부모들이 육아와 관련된 질문을 할 때 정확하고 신뢰할 수 있는 정보를 제공합니다.
-- 공공 데이터 (어린이집, 병원, 예방접종)와 성장도표 분석 도구를 활용합니다.
-- 항상 친절하고 공감하는 태도로 답변합니다.
-
-지침:
-1. 사용자 질문을 정확히 이해하고, 필요한 도구를 선택하여 사용합니다.
-2. 정보를 제공할 때는 출처를 명확히 합니다 (예: "질병관리청 자료에 따르면...").
-3. 의료적 진단이나 치료는 제공하지 않으며, 심각한 증상은 병원 방문을 권장합니다.
-4. 답변은 간결하고 이해하기 쉽게 작성합니다.
-
-사용 가능한 도구:
-- search_knowledge_base: 육아 지식 검색
-- search_childcare_centers: 어린이집 검색
-- search_moonlight_hospitals: 달빛어린이병원 검색
-- analyze_growth: 성장 분석 (백분위수 계산)
-"""
+        # 시스템 프롬프트 로드 (YAML)
+        system_prompt = prompt_loader.get_system_prompt("default")
 
         # 프롬프트 템플릿 생성
         prompt = ChatPromptTemplate.from_messages([
