@@ -167,6 +167,8 @@ python scripts/init_database.py --public-api-only
 
 ## 사용 예시
 
+### 1. 데이터 수집 및 분석
+
 ```python
 from src.database.supabase_client import get_supabase_client
 from src.collectors.growth_chart_parser import GrowthChartParser
@@ -194,9 +196,51 @@ print(result['message'])
 # [결과] 백분위수: 65.3% (정상)
 ```
 
+### 2. AI 챗봇 사용 (에이전틱 RAG)
+
+```python
+from src.rag.childcare_agent import ChildcareAgent
+
+# 에이전트 초기화
+agent = ChildcareAgent()
+
+# 질문하기
+response = agent.chat("달빛어린이병원이 뭐야?")
+print(response)
+
+# Function Calling - 어린이집 검색
+response = agent.chat("서울 강남구 어린이집 찾아줘")
+print(response)
+
+# 성장 분석
+response = agent.chat("12개월 남자아이 몸무게 10.5kg 정상이야?")
+print(response)
+```
+
+### 3. FastAPI 서버 실행
+
+```bash
+# API 서버 시작
+python src/api/chatbot_api.py
+
+# 또는 uvicorn 사용
+uvicorn src.api.chatbot_api:app --reload --host 0.0.0.0 --port 8000
+```
+
+HTTP 요청 예시:
+```bash
+curl -X POST "http://localhost:8000/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "달빛어린이병원이 뭐야?"}'
+```
+
 전체 예제:
 ```bash
+# 데이터 수집
 python examples/usage_example.py
+
+# AI 챗봇
+python examples/chatbot_usage.py
 ```
 
 ---
@@ -207,30 +251,82 @@ python examples/usage_example.py
 childcare-assistant-ai/
 ├── src/
 │   ├── database/
-│   │   └── supabase_client.py
+│   │   └── supabase_client.py         # Supabase 연결
 │   ├── collectors/
-│   │   ├── public_api_collector.py
-│   │   └── growth_chart_parser.py
+│   │   ├── public_api_collector.py     # 공공 API 수집기
+│   │   └── growth_chart_parser.py      # 성장도표 파서
+│   ├── rag/                             # [NEW] RAG 시스템
+│   │   ├── document_processor.py        # 문서 임베딩/벡터 DB
+│   │   └── childcare_agent.py           # AI 에이전트
+│   ├── api/                             # [NEW] FastAPI
+│   │   └── chatbot_api.py               # 챗봇 REST API
 │   ├── models/
 │   ├── utils/
 │   └── analysis/
 ├── scripts/
-│   ├── init_database.py
-│   └── create_tables.sql
+│   ├── init_database.py                 # DB 초기화
+│   └── create_tables.sql                # SQL 스키마
 ├── examples/
-│   └── usage_example.py
-├── docs/
+│   ├── usage_example.py                 # 데이터 수집 예시
+│   └── chatbot_usage.py                 # [NEW] 챗봇 예시
+├── docs/                                # 육아 가이드 문서
 ├── data/
+│   ├── chroma_db/                       # [NEW] 벡터 DB
+│   └── growth_standards/
 └── .env.example
 ```
 
 ---
 
+## AI 챗봇 (에이전틱 RAG) 아키텍처
+
+### 핵심 기술
+
+1. **RAG (Retrieval-Augmented Generation)**
+   - 육아 가이드 문서를 벡터 DB에 저장
+   - 사용자 질문과 유사한 문서 검색
+   - 검색된 컨텍스트를 바탕으로 답변 생성
+
+2. **Function Calling**
+   - LLM이 상황에 맞는 도구를 자동 선택
+   - 어린이집 검색, 병원 검색, 성장 분석 등
+
+3. **에이전트 (Agent)**
+   - LangChain의 OpenAI Tools Agent 사용
+   - 다단계 추론 (Multi-step Reasoning)
+   - 자율적 의사결정
+
+### 데이터 흐름
+
+```
+사용자 질문
+    ↓
+AI 에이전트 (LLM)
+    ↓
+[의사결정] 어떤 도구를 사용할까?
+    ↓
+    ├─→ RAG 검색 → 벡터 DB 조회
+    ├─→ Function Call → 공공 API 호출
+    └─→ 계산 → 성장도표 분석
+    ↓
+결과 통합
+    ↓
+자연어 답변 생성
+    ↓
+사용자에게 응답
+```
+
 ## 참고 자료
 
+### 공공 데이터
 - [공공데이터포털](https://www.data.go.kr/)
 - [Supabase 문서](https://supabase.com/docs)
 - [질병관리청 성장도표](https://www.data.go.kr/data/15076588/fileData.do)
+
+### AI/LLM
+- [LangChain 문서](https://python.langchain.com/)
+- [OpenAI API](https://platform.openai.com/docs)
+- [ChromaDB](https://docs.trychroma.com/)
 
 ---
 
