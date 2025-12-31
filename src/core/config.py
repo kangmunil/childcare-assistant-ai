@@ -30,8 +30,10 @@ class Settings(BaseSettings):
     
     # API Keys
     OPENAI_API_KEY: Optional[str] = Field(default=None, description="OpenAI API Key")
+    OPENAI_API_BASE: Optional[str] = Field(default=None, description="Legacy OpenAI API Base URL")
+    
     OPENROUTER_API_KEY: Optional[str] = Field(default=None, description="OpenRouter API Key")
-    OPENAI_API_BASE: Optional[str] = Field(default=None, description="Custom API Base URL")
+    OPENROUTER_API_BASE: Optional[str] = Field(default="https://openrouter.ai/api/v1", description="OpenRouter API Base URL")
 
     # === 3. Database & Storage ===
     # Vector Store
@@ -49,21 +51,16 @@ class Settings(BaseSettings):
         """사용 가능한 API Key를 반환 (OpenRouter 우선)"""
         key = self.OPENROUTER_API_KEY or self.OPENAI_API_KEY
         if not key:
-            # 임베딩이 로컬 모델이 아닌 경우에만 경고/에러가 필요하지만, 
-            # 일단 LLM 구동을 위해 키가 없으면 경고 값을 반환 (Log에서 확인 가능)
             return "MISSING_API_KEY"
         return key
 
     @computed_field
     def EFFECTIVE_API_BASE(self) -> str:
-        """API Base URL 결정"""
-        if self.OPENAI_API_BASE:
-            return self.OPENAI_API_BASE
-        
+        """API Base URL 결정 (OpenRouter 우선)"""
         if self.OPENROUTER_API_KEY:
-            return "https://openrouter.ai/api/v1"
+            return self.OPENROUTER_API_BASE or "https://openrouter.ai/api/v1"
         
-        return "https://api.openai.com/v1" # Default OpenAI
+        return self.OPENAI_API_BASE or "https://api.openai.com/v1"
 
     @computed_field
     def IS_LOCAL_EMBEDDING(self) -> bool:

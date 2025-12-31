@@ -19,20 +19,28 @@ class PromptLoader:
                 return yaml.safe_load(f)
         except Exception as e:
             print(f"Error loading prompts: {e}")
-            return {{}}
+            return {}
 
     def get_system_prompt(self, key: str = "default") -> str:
         """
         YAML 구조를 평문 텍스트로 변환하여 시스템 프롬프트를 생성합니다.
         """
-        data = self.prompts.get(key, {{}})
+        data = self.prompts.get(key, {})
         if not data:
             return "당신은 도움이 되는 AI 어시스턴트입니다."
 
         role = data.get("role", "")
         
         guidelines = "\n".join([f"- {item}" for item in data.get("guidelines", [])])
-        tools = "\n".join([f"- {item}" for item in data.get("tools_description", [])])
+        
+        tools_list = []
+        for item in data.get("tools_description", []):
+            if isinstance(item, dict):
+                for k, v in item.items():
+                    tools_list.append(f"- {k}: {v}")
+            else:
+                tools_list.append(f"- {item}")
+        tools = "\n".join(tools_list)
 
         full_prompt = f"""{role}
 
