@@ -25,6 +25,7 @@ from langchain_core.pydantic_v1 import BaseModel, Field
 # 프로젝트 모듈
 from src.core.config import settings
 from src.prompts.templates import prompt_loader
+from src.safety import safety_manager
 from src.rag.document_processor import DocumentProcessor
 from src.collectors.public_api_collector import (
     ChildcareAPICollector,
@@ -355,7 +356,7 @@ class ChildcareAgent:
 
     def chat(self, user_input: str, chat_history: List = None) -> str:
         """
-        사용자와 대화합니다.
+        사용자와 대화합니다. (고도화된 안전 가드레일 적용)
 
         Args:
             user_input: 사용자 입력
@@ -365,12 +366,31 @@ class ChildcareAgent:
             AI 응답
         """
         try:
+            # 1. 입력 안전 검사 (구조화된 평가)
+            assessment = safety_manager.check_input_safety(user_input)
+            
+            # [Action: BLOCK] 응급 상황 -> 답변 생성 중단하고 경고만 반환
+            if assessment.action_type == "BLOCK":
+                warning_msg = "\n".join(assessment.warnings)
+                return f"🚨 [긴급 경고] 🚨\n{warning_msg}\n\n즉시 병원 방문이 필요한 상황으로 보입니다. AI 답변 대신 전문의와 상담하세요."
+
+            # 2. 에이전트 실행 (답변 생성)
             response = self.agent.invoke({
                 "input": user_input,
                 "chat_history": chat_history or []
             })
+            ai_output = response["output"]
 
-            return response["output"]
+            # [Action: WARN_AND_ANSWER] 주의 사항 -> 경고문 + 답변 병기
+            if assessment.action_type == "WARN_AND_ANSWER":
+                warning_msg = "\n".join(assessment.warnings)
+                ai_output = f"⚠️ [주의] {warning_msg}\n\n{ai_output}"
+
+            # 3. 출력 안전 검사 (면책 조항, 마스킹 등)
+            is_health = any(kw in user_input for kw in ["열", "아파요", "질병", "약", "병원", "증상", "먹여도"])
+            safe_output = safety_manager.process_output_safety(ai_output, is_health_related=is_health)
+
+            return safe_output
 
         except Exception as e:
             logger.error(f"에이전트 실행 오류: {str(e)}")

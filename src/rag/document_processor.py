@@ -16,7 +16,8 @@ from src.core.config import settings
 from langchain_community.document_loaders import (
     TextLoader,
     DirectoryLoader,
-    UnstructuredMarkdownLoader
+    UnstructuredMarkdownLoader,
+    PyPDFLoader
 )
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
@@ -103,6 +104,65 @@ class DocumentProcessor:
         logger.info(f"  - 임베딩 모델: {self.embedding_model}")
         logger.info(f"  - 청크 크기: {self.chunk_size}")
         logger.info(f"  - 저장 경로: {self.persist_directory}")
+
+    def load_documents_from_directory(self, directory: str) -> List[Document]:
+        """
+        디렉토리에서 다양한 형식의 문서(PDF, MD, TXT)를 로드합니다.
+
+        Args:
+            directory: 문서 디렉토리 경로
+
+        Returns:
+            LangChain Document 객체 리스트
+        """
+        logger.info(f"문서 로드 시작: {directory}")
+        documents = []
+
+        # 1. PDF 로드
+        try:
+            pdf_loader = DirectoryLoader(
+                directory,
+                glob="**/*.pdf",
+                loader_cls=PyPDFLoader,
+                show_progress=True
+            )
+            pdf_docs = pdf_loader.load()
+            documents.extend(pdf_docs)
+            logger.info(f"PDF 로드 완료: {len(pdf_docs)}개 문서")
+        except Exception as e:
+            logger.error(f"PDF 로드 중 오류 발생: {str(e)}")
+
+        # 2. Markdown 로드
+        try:
+            md_loader = DirectoryLoader(
+                directory,
+                glob="**/*.md",
+                loader_cls=UnstructuredMarkdownLoader,
+                show_progress=True
+            )
+            md_docs = md_loader.load()
+            documents.extend(md_docs)
+            logger.info(f"Markdown 로드 완료: {len(md_docs)}개 문서")
+        except Exception as e:
+            logger.error(f"Markdown 로드 중 오류 발생: {str(e)}")
+
+        # 3. Text 로드
+        try:
+            txt_loader = DirectoryLoader(
+                directory,
+                glob="**/*.txt",
+                loader_cls=TextLoader,
+                loader_kwargs={"encoding": "utf-8"},
+                show_progress=True
+            )
+            txt_docs = txt_loader.load()
+            documents.extend(txt_docs)
+            logger.info(f"Text 로드 완료: {len(txt_docs)}개 문서")
+        except Exception as e:
+            logger.error(f"Text 로드 중 오류 발생: {str(e)}")
+
+        logger.info(f"총 로드 완료: {len(documents)}개 문서")
+        return documents
 
     def load_markdown_files(self, directory: str) -> List[Document]:
         """
@@ -277,14 +337,14 @@ def process_childcare_documents():
     """
     processor = DocumentProcessor()
 
-    # 1. docs 디렉토리의 모든 Markdown 파일 로드
-    docs_dir = "./docs"
+    # 1. babyData 디렉토리에서 모든 문서(PDF, MD, TXT) 로드
+    data_dir = "./babyData"
 
-    if not os.path.exists(docs_dir):
-        logger.warning(f"문서 디렉토리가 없습니다: {docs_dir}")
+    if not os.path.exists(data_dir):
+        logger.warning(f"데이터 디렉토리가 없습니다: {data_dir}")
         return
 
-    documents = processor.load_markdown_files(docs_dir)
+    documents = processor.load_documents_from_directory(data_dir)
 
     if not documents:
         logger.warning("로드된 문서가 없습니다.")

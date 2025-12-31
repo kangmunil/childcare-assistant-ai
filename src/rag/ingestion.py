@@ -23,37 +23,12 @@ from src.rag.embeddings import OpenRouterEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_community.retrievers import BM25Retriever
 from langchain.retrievers import EnsembleRetriever
-# from dotenv import load_dotenv # 제거
 from src.core.config import settings
-
-# 환경 변수 로드
-# load_dotenv() # 제거
+from src.safety import safety_manager
 
 # 로깅 설정
 logging.basicConfig(level=settings.LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-class SafetyFilter:
-    """
-    [Safety Guardrail]
-    부적절하거나 위험한 콘텐츠(민간요법, 검증되지 않은 정보)를 필터링합니다.
-    """
-    
-    UNRELIABLE_KEYWORDS = [
-        "민간요법", "카더라", "할머니가 그러는데", "옛날에는", 
-        "과학적 근거는 없지만", "특효약", "기적의", "절대", "무조건"
-    ]
-
-    @staticmethod
-    def is_safe(text: str) -> bool:
-        """
-        텍스트에 신뢰할 수 없는 키워드가 포함되어 있는지 검사합니다.
-        """
-        for keyword in SafetyFilter.UNRELIABLE_KEYWORDS:
-            if keyword in text:
-                logger.warning(f"Safety Filter Triggered: Found '{keyword}'")
-                return False
-        return True
 
 class MetadataExtractor:
     """
@@ -192,8 +167,8 @@ class DataPipeline:
         """
         enriched_docs = []
         for doc in docs:
-            # 안전성 검사
-            if not SafetyFilter.is_safe(doc.page_content):
+            # 안전성 검사 (데이터 적재 시 신뢰할 수 없는 정보 필터링)
+            if not safety_manager.content.is_reliable(doc.page_content):
                 continue
 
             # 메타데이터 추출
