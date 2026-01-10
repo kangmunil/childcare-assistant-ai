@@ -19,6 +19,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.rag.childcare_agent import ChildcareAgent
+from src.database.chat_session_manager import session_manager
 
 # FastAPI 앱 초기화
 app = FastAPI(
@@ -62,64 +63,21 @@ class HealthCheckResponse(BaseModel):
 
 
 # ========================================
-# 세션 관리 (간단한 인메모리 저장소)
+# 세션 관리 (SQLite 기반)
 # ========================================
-
-# 실제 프로덕션에서는 Redis 등을 사용
-chat_sessions: Dict[str, List[Dict[str, str]]] = {}
-
 
 def get_or_create_session(session_id: Optional[str]) -> str:
     """
-    세션 ID를 가져오거나 새로 생성합니다.
-
-    Args:
-        session_id: 기존 세션 ID (없으면 None)
-
-    Returns:
-        세션 ID
+    세션 ID를 확인하고 없으면 새로 생성합니다.
     """
-    if session_id and session_id in chat_sessions:
+    if session_id:
         return session_id
 
     # 새 세션 생성
     new_session_id = f"session_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
-    chat_sessions[new_session_id] = []
     logger.info(f"새 세션 생성: {new_session_id}")
 
     return new_session_id
-
-
-def add_to_session(session_id: str, role: str, content: str):
-    """
-    세션에 메시지 추가
-
-    Args:
-        session_id: 세션 ID
-        role: 역할 (user 또는 assistant)
-        content: 메시지 내용
-    """
-    if session_id not in chat_sessions:
-        chat_sessions[session_id] = []
-
-    chat_sessions[session_id].append({
-        "role": role,
-        "content": content,
-        "timestamp": datetime.now().isoformat()
-    })
-
-
-def get_session_history(session_id: str) -> List[Dict[str, str]]:
-    """
-    세션 히스토리 가져오기
-
-    Args:
-        session_id: 세션 ID
-
-    Returns:
-        메시지 히스토리
-    """
-    return chat_sessions.get(session_id, [])
 
 
 # ========================================
@@ -194,21 +152,21 @@ async def chat(
         session_id = get_or_create_session(request.session_id)
 
         # 사용자 메시지 기록
-        add_to_session(session_id, "user", request.message)
+        session_manager.add_message(session_id, "user", request.message)
 
         logger.info(f"[세션: {session_id}] 사용자: {request.message}")
 
-        # 세션 히스토리 가져오기 (최근 10개만)
-        history = get_session_history(session_id)[-10:]
+        # 세션 히스토리 가져오기 (최근 10개)
+        history = session_manager.get_history(session_id, limit=10)
 
-        # 에이전트 호출
-        reply = agent.chat(
+        # 에이전트 비동기 호출
+        reply = await agent.achat(
             user_input=request.message,
             chat_history=history
         )
 
         # AI 응답 기록
-        add_to_session(session_id, "assistant", reply)
+        session_manager.add_message(session_id, "assistant", reply)
 
         logger.info(f"[세션: {session_id}] AI: {reply[:100]}...")
 
@@ -227,19 +185,14 @@ async def chat(
 async def get_chat_history(session_id: str):
     """
     특정 세션의 대화 히스토리 조회
-
-    Args:
-        session_id: 세션 ID
-
-    Returns:
-        대화 히스토리
     """
-    if session_id not in chat_sessions:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    history = session_manager.get_history(session_id, limit=50)
+    if not history:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없거나 기록이 없습니다.")
 
     return {
         "session_id": session_id,
-        "history": chat_sessions[session_id]
+        "history": history
     }
 
 
@@ -247,18 +200,10 @@ async def get_chat_history(session_id: str):
 async def delete_session(session_id: str):
     """
     세션 삭제
-
-    Args:
-        session_id: 세션 ID
-
-    Returns:
-        삭제 결과
     """
-    if session_id in chat_sessions:
-        del chat_sessions[session_id]
-        return {"message": f"세션 {session_id}가 삭제되었습니다."}
-    else:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    session_manager.delete_session(session_id)
+    return {"message": f"세션 {session_id}와 관련된 모든 대화 기록이 삭제되었습니다."}
+
 
 
 # ========================================

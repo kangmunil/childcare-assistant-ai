@@ -6,7 +6,6 @@ python-dotenv>=1.0.0
 
 # Supabase
 supabase>=2.0.0
-postgrest-py>=0.13.0
 
 # HTTP Requests (공공 API 호출)
 requests>=2.31.0
