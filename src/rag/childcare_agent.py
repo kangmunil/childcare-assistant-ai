@@ -26,7 +26,7 @@ from langchain_core.pydantic_v1 import BaseModel, Field
 from src.core.config import settings
 from src.prompts.templates import prompt_loader
 from src.safety import safety_manager
-from src.rag.document_processor import DocumentProcessor
+from src.rag.knowledge_base import ChildcareKnowledgeBase
 from src.collectors.public_api_collector import (
     ChildcareAPICollector,
     MoonlightHospitalCollector,
@@ -102,8 +102,8 @@ class ChildcareAgent:
             base_url=settings.EFFECTIVE_API_BASE
         )
 
-        # Document Processor 초기화
-        self.doc_processor = DocumentProcessor()
+        # Knowledge Base 초기화 (Unified)
+        self.knowledge_base = ChildcareKnowledgeBase()
 
         # 공공 API Collectors 초기화
         self.childcare_collector = ChildcareAPICollector()
@@ -141,9 +141,9 @@ class ChildcareAgent:
                 검색 결과 텍스트
             """
             try:
-                results = self.doc_processor.search_similar_documents(
+                # ChildcareKnowledgeBase.search 사용
+                results = self.knowledge_base.search(
                     query=query,
-                    collection_name=self.vector_collection,
                     k=3
                 )
 
@@ -394,6 +394,38 @@ class ChildcareAgent:
 
         except Exception as e:
             logger.error(f"에이전트 실행 오류: {str(e)}")
+            return f"죄송합니다. 오류가 발생했습니다: {str(e)}"
+
+    async def achat(self, user_input: str, chat_history: List = None) -> str:
+        """
+        사용자와 비동기적으로 대화합니다.
+        """
+        try:
+            # 입력 안전 검사 (비동기 함수가 아니라면 그대로 실행)
+            assessment = safety_manager.check_input_safety(user_input)
+            
+            if assessment.action_type == "BLOCK":
+                warning_msg = "\n".join(assessment.warnings)
+                return f"🚨 [긴급 경고] 🚨\n{warning_msg}\n\n즉시 병원 방문이 필요한 상황으로 보입니다. AI 답변 대신 전문의와 상담하세요."
+
+            # 에이전트 실행 (비동기 ainvoke 사용)
+            response = await self.agent.ainvoke({
+                "input": user_input,
+                "chat_history": chat_history or []
+            })
+            ai_output = response["output"]
+
+            if assessment.action_type == "WARN_AND_ANSWER":
+                warning_msg = "\n".join(assessment.warnings)
+                ai_output = f"⚠️ [주의] {warning_msg}\n\n{ai_output}"
+
+            is_health = any(kw in user_input for kw in ["열", "아파요", "질병", "약", "병원", "증상", "먹여도"])
+            safe_output = safety_manager.process_output_safety(ai_output, is_health_related=is_health)
+
+            return safe_output
+
+        except Exception as e:
+            logger.error(f"에이전트 비동기 실행 오류: {str(e)}")
             return f"죄송합니다. 오류가 발생했습니다: {str(e)}"
 
 

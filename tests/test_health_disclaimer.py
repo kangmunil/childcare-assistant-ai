@@ -1,10 +1,10 @@
 import unittest
 from langchain_core.documents import Document
-from src.rag.pipeline import DataPipeline
+from src.rag.knowledge_base import ChildcareKnowledgeBase
 
 class TestHealthDisclaimer(unittest.TestCase):
     def setUp(self):
-        self.pipeline = DataPipeline()
+        self.kb = ChildcareKnowledgeBase()
 
     def test_health_disclaimer_appended(self):
         # Create a mock document tagged as 'health'
@@ -17,12 +17,14 @@ class TestHealthDisclaimer(unittest.TestCase):
             }
         )
         
-        # Run step 3
-        chunks = self.pipeline.step3_context_aware_chunking([doc])
+        # Run step 3 (context aware chunking)
+        # Accessing private method for testing purpose
+        chunks = self.kb._context_aware_chunking([doc])
         
         # Verify disclaimer is present
         self.assertTrue(len(chunks) > 0)
-        self.assertIn("[주의: 이 정보는 의학적 진단을 대신할 수 없습니다", chunks[0].page_content)
+        # Note: the actual text in knowledge_base.py is "[주의: 의학적 조언이 아닙니다. 전문의와 상담하세요.]"
+        self.assertIn("[주의: 의학적 조언이 아닙니다", chunks[0].page_content)
         self.assertIn("[6~12개월 health 정보]", chunks[0].page_content)
 
     def test_no_disclaimer_for_general(self):
@@ -37,11 +39,11 @@ class TestHealthDisclaimer(unittest.TestCase):
         )
         
         # Run step 3
-        chunks = self.pipeline.step3_context_aware_chunking([doc])
+        chunks = self.kb._context_aware_chunking([doc])
         
         # Verify disclaimer is NOT present
         self.assertTrue(len(chunks) > 0)
-        self.assertNotIn("[주의: 이 정보는 의학적 진단을 대신할 수 없습니다", chunks[0].page_content)
+        self.assertNotIn("[주의: 의학적 조언이 아닙니다", chunks[0].page_content)
 
 if __name__ == '__main__':
     unittest.main()
