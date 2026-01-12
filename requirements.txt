@@ -1,0 +1,48 @@
+pandas>=2.0.0
+sqlalchemy>=2.0.0
+openpyxl>=3.1.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# Supabase
+supabase>=2.0.0
+
+# HTTP Requests (공공 API 호출)
+requests>=2.31.0
+httpx>=0.25.0
+
+# 데이터 처리
+scipy>=1.11.0  # Z-Score 백분위수 계산
+numpy>=1.24.0
+
+# 크롤링 (선택사항)
+beautifulsoup4>=4.12.0
+selenium>=4.15.0
+
+# 로깅
+loguru>=0.7.0
+
+# LangChain & RAG
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-community>=0.0.20
+langchain-core>=0.1.0
+
+# Vector Database
+chromadb>=0.4.22
+pgvector>=0.2.4
+
+# Embeddings
+openai>=1.10.0
+sentence-transformers>=2.3.0
+
+# FastAPI (챗봇 API)
+fastapi>=0.109.0
+uvicorn>=0.27.0
+pydantic>=2.5.0
+python-multipart>=0.0.6
+
+# Text Processing
+tiktoken>=0.5.2
+unstructured>=0.12.0
+markdown>=3.5.0
