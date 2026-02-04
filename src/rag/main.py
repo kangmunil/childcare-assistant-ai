@@ -46,31 +46,24 @@ def create_mock_data(path: str):
 
 def main():
     # 데이터 경로 설정
-    raw_data_dir = "./data/raw_samples"
+    raw_data_dir = "./babyData"
     
     # 0. 가상 데이터 생성 (실제 운영 시에는 이 단계 생략)
-    create_mock_data(raw_data_dir)
+    # create_mock_data(raw_data_dir)
     
     # 파이프라인 초기화 (Unified KnowledgeBase)
     kb = ChildcareKnowledgeBase()
     
-    # 파이프라인 실행
-    print(">>> Starting Childcare RAG Pipeline...")
+    # 파이프라인 실행 (임베딩/적재만)
+    print(">>> Starting Childcare RAG Pipeline (ingest only)...")
     vectorstore = kb.ingest_documents(raw_data_dir)
     
     if vectorstore:
-        print("\n>>> Pipeline execution successful. Testing Search...")
-        
-        # 검색 테스트
-        query = "6개월 아기 해열제 뭐 먹여?"
-        print(f"\nQuery: {query}")
-        
-        results = kb.search(query)
-        
-        for i, doc in enumerate(results):
-            print(f"\n[Result {i+1}]")
-            print(f"Content: {doc.page_content}")
-            print(f"Metadata: {doc.metadata}")
+        try:
+            count = vectorstore._collection.count()
+            print(f">>> Pipeline execution successful. Vector count: {count}")
+        except Exception:
+            print(">>> Pipeline execution successful. (Vector count unavailable)")
     else:
         print("Pipeline failed (No vectors created).")
 
