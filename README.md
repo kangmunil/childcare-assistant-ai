@@ -116,30 +116,28 @@ pip install -r requirements.txt
 # .env.example을 .env로 복사
 cp .env.example .env
 
-# .env 파일 편집 (필수 항목 입력)
+# .env 파일 편집
 ```
 
-**Supabase 설정 방법:**
+**중요: OpenRouter 임베딩 사용 시 설정**
+OpenRouter를 통해 임베딩을 사용할 경우, 모델명에 반드시 접두사를 포함해야 합니다.
+```ini
+# .env 예시
+OPENROUTER_API_KEY=sk-or-v1-...
+EMBEDDING_MODEL=openai/text-embedding-3-large
+```
 
-1. [Supabase 대시보드](https://app.supabase.com/) 접속
-2. 새 프로젝트 생성
-3. Settings → API에서 다음 값 복사:
-   - **Project URL** → `SUPABASE_URL`
-   - **anon public** → `SUPABASE_KEY`
-   - **service_role** → `SUPABASE_SERVICE_ROLE_KEY`
+### 4. 데이터베이스 및 RAG 초기화
 
-### 4. 데이터베이스 초기화
-
+**데이터베이스 테이블 생성:**
 ```bash
-# 1. Supabase SQL Editor에서 테이블 생성
-# scripts/create_tables.sql 실행
-
-# 2. 성장도표 데이터 다운로드
-# 공공데이터포털에서 '질병관리청 소아청소년 성장도표' 다운로드
-# → data/growth_standards/ 에 저장
-
-# 3. 데이터베이스 초기화
 python scripts/init_database.py --all
+```
+
+**RAG(지식 베이스) 데이터 적재:**
+`babyData/` 폴더의 문서를 임베딩하여 벡터 DB에 저장합니다.
+```bash
+python -m src.rag.main
 ```
 
 ---
