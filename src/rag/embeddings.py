@@ -37,6 +37,8 @@ class OpenRouterEmbeddings(Embeddings):
             "model": self.model,
             "input": texts
         }
+
+        response = None
         
         try:
             response = requests.post(url, headers=headers, json=data)

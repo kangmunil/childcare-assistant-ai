@@ -1,7 +1,5 @@
-import json
 import sqlite3
-from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict
 from loguru import logger
 from src.core.config import settings
 
@@ -54,7 +52,7 @@ class ChatSessionManager:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT role, content FROM chat_sessions WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?",
+                    "SELECT role, content FROM chat_sessions WHERE session_id = ? ORDER BY id DESC LIMIT ?",
                     (session_id, limit)
                 )
                 rows = cursor.fetchall()

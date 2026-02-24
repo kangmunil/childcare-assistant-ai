@@ -229,8 +229,24 @@ HTTP 요청 예시:
 ```bash
 curl -X POST "http://localhost:8000/chat" \
   -H "Content-Type: application/json" \
-  -d '{"message": "달빛어린이병원이 뭐야?"}'
+  -d '{"message": "달빛어린이병원이 뭐야?", "context_mode": "AUTO"}'
 ```
+
+수동 컨텍스트 예시:
+```bash
+curl -X POST "http://localhost:8000/chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "이 정보를 기준으로 수면 조언해줘",
+    "context_mode": "MANUAL",
+    "profile_context": "[사용자 입력]\n- 알레르기: 계란\n- 평일 수면: 21:30~06:30"
+  }'
+```
+
+환경 변수:
+- `APP_ENV`: `development|production` (기본: `production`)
+- `AI_ALLOWED_ORIGINS`: CORS 허용 origin 목록(콤마 구분)
+- `ENABLE_SESSION_API`: `true|false` (`/sessions/*` 노출 제어, 기본은 dev=true / prod=false)
 
 전체 예제:
 ```bash
