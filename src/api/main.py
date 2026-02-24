@@ -1,8 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from src.analysis.growth_analyzer import GrowthAnalyzer
-from src.models.domain import Gender
+from analysis.growth_analyzer import GrowthAnalyzer
+from domain.models import Gender
 from datetime import date
 import os
 from typing import Optional
