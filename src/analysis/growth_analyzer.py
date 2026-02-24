@@ -75,13 +75,40 @@ class GrowthAnalyzer:
         """
         Z-Score를 백분위수(0~100)로 변환
         """
-        return norm.cdf(z_score) * 100
+        if not np.isfinite(z_score):
+            return 0.0
+
+        percentile = norm.cdf(z_score) * 100
+        # 극단적으로 큰 값이 100.0으로 고정되는 것을 방지해 실측 오차/입력 오류를 완화
+        return float(min(max(percentile, 0.0), 99.9))
+
+    def _build_growth_warning(self, metric_name: str, value: float, z_score: float) -> str | None:
+        """
+        성장치가 표준편차 범위를 크게 벗어나는 경우 사용자 확인 필요 메시지 생성
+        """
+        if not np.isfinite(z_score):
+            return f"{metric_name}의 Z-score 계산이 불안정합니다. 입력값 또는 단위를 확인해주세요."
+
+        if abs(z_score) >= 6.0:
+            return (
+                f"{metric_name} 값({value})이(가) 성장표준 범위를 많이 벗어납니다. "
+                f"입력 단위(키 cm, 몸무게 kg)가 맞는지 다시 확인해주세요."
+            )
+
+        if abs(z_score) >= 4.0:
+            return (
+                f"{metric_name} 값({value})이(가) 표준범위에서 다소 벗어납니다. "
+                f"정상 범위인지 다시 확인해주세요."
+            )
+
+        return None
 
     def assess_growth(self, gender: int, birth_date: date, measured_date: date = None, 
                       height: float = None, weight: float = None, head_circ: float = None) -> Dict[str, Any]:
         """
         종합 성장 분석 수행
         """
+        warnings = []
         if measured_date is None:
             measured_date = date.today()
             
@@ -90,6 +117,7 @@ class GrowthAnalyzer:
             "age_months": age_months,
             "measured_date": measured_date.isoformat(),
             "analysis": {},
+            "warnings": warnings,
             "status": "success"
         }
 
@@ -99,6 +127,9 @@ class GrowthAnalyzer:
             if lms:
                 z = self.calculate_z_score(height, lms['l'], lms['m'], lms['s'])
                 p = self.calculate_percentile(z)
+                warning = self._build_growth_warning("키", height, z)
+                if warning:
+                    warnings.append(warning)
                 results["analysis"]["height"] = {
                     "value": height,
                     "percentile": round(p, 1),
@@ -113,6 +144,9 @@ class GrowthAnalyzer:
             if lms:
                 z = self.calculate_z_score(weight, lms['l'], lms['m'], lms['s'])
                 p = self.calculate_percentile(z)
+                warning = self._build_growth_warning("몸무게", weight, z)
+                if warning:
+                    warnings.append(warning)
                 results["analysis"]["weight"] = {
                     "value": weight,
                     "percentile": round(p, 1),
@@ -127,6 +161,9 @@ class GrowthAnalyzer:
             if lms:
                 z = self.calculate_z_score(weight, lms['l'], lms['m'], lms['s'])
                 p = self.calculate_percentile(z)
+                warning = self._build_growth_warning("신장별 체중(몸무게)", weight, z)
+                if warning:
+                    warnings.append(warning)
                 results["analysis"]["weight_for_height"] = {
                     "percentile": round(p, 1),
                     "status": self._get_obesity_label(p)
@@ -138,6 +175,9 @@ class GrowthAnalyzer:
             if lms:
                 z = self.calculate_z_score(head_circ, lms['l'], lms['m'], lms['s'])
                 p = self.calculate_percentile(z)
+                warning = self._build_growth_warning("머리둘레", head_circ, z)
+                if warning:
+                    warnings.append(warning)
                 results["analysis"]["head_circumference"] = {
                     "value": head_circ,
                     "percentile": round(p, 1),

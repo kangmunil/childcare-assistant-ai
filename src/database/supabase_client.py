@@ -37,7 +37,8 @@ class SupabaseClient:
     """
 
     _instance: Optional['SupabaseClient'] = None
-    _client: Optional[Client] = None
+    _anon_client: Optional[Client] = None
+    _service_client: Optional[Client] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -49,25 +50,38 @@ class SupabaseClient:
         Args:
             use_service_role: True면 Service Role Key 사용 (RLS 우회, 서버 전용)
         """
-        if self._client is None:
-            url = os.getenv("SUPABASE_URL")
-            key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") if use_service_role else os.getenv("SUPABASE_KEY")
+        self._use_service_role = use_service_role
 
-            if not url or not key:
-                raise ValueError(
-                    "SUPABASE_URL과 SUPABASE_KEY 환경 변수가 설정되지 않았습니다. "
-                    ".env 파일을 확인하세요."
-                )
-
-            self._client = create_client(url, key)
-            logger.info(f"Supabase 클라이언트 초기화 완료 (Service Role: {use_service_role})")
+        if use_service_role:
+            if self._service_client is None:
+                url = os.getenv("SUPABASE_URL")
+                key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+                if not url or not key:
+                    raise ValueError(
+                        "SUPABASE_URL과 SUPABASE_SERVICE_ROLE_KEY 환경 변수가 설정되지 않았습니다. "
+                        ".env 파일을 확인하세요."
+                    )
+                self.__class__._service_client = create_client(url, key)
+                logger.info("Supabase 클라이언트 초기화 완료 (Service Role: true)")
+        else:
+            if self._anon_client is None:
+                url = os.getenv("SUPABASE_URL")
+                key = os.getenv("SUPABASE_KEY")
+                if not url or not key:
+                    raise ValueError(
+                        "SUPABASE_URL과 SUPABASE_KEY 환경 변수가 설정되지 않았습니다. "
+                        ".env 파일을 확인하세요."
+                    )
+                self.__class__._anon_client = create_client(url, key)
+                logger.info("Supabase 클라이언트 초기화 완료 (Service Role: false)")
 
     @property
     def client(self) -> Client:
         """Supabase 클라이언트 인스턴스 반환"""
-        if self._client is None:
+        cached_client = self._service_client if self._use_service_role else self._anon_client
+        if cached_client is None:
             raise RuntimeError("Supabase 클라이언트가 초기화되지 않았습니다.")
-        return self._client
+        return cached_client
 
     # ========================================
     # Helper Methods
@@ -142,7 +156,15 @@ class SupabaseClient:
 
             # 정렬
             if order_by:
-                query = query.order(order_by)
+                order_key = str(order_by).strip()
+                descending = False
+                if order_key.endswith(".desc"):
+                    order_key = order_key[:-5]
+                    descending = True
+                elif order_key.endswith(".asc"):
+                    order_key = order_key[:-4]
+
+                query = query.order(order_key, desc=descending)
 
             # 제한
             if limit:
