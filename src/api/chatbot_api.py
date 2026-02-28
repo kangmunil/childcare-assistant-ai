@@ -46,6 +46,7 @@ ENABLE_SESSION_API = os.getenv(
     "ENABLE_SESSION_API",
     "true" if IS_DEVELOPMENT else "false"
 ).lower() == "true"
+AI_CHAT_META_ENABLED = os.getenv("AI_CHAT_META_ENABLED", "true").lower() == "true"
 INTERNAL_SERVICE_TOKEN_HEADER = "X-Internal-Service-Token"
 INTERNAL_TOKEN_HEADER = "X-Internal-Token"
 AI_INTERNAL_TOKEN = (os.getenv("AI_INTERNAL_TOKEN") or "").strip()
@@ -151,11 +152,52 @@ class ChatRequest(BaseModel):
         return value
 
 
+class ChatResponseCitation(BaseModel):
+    """챗봇 응답 메타-출처 모델"""
+    label: str = Field(..., description="출처 라벨")
+    source_type: str = Field(..., description="출처 타입 (PROFILE/GROWTH_HISTORY/KNOWLEDGE_BASE/PUBLIC_API/SYSTEM_POLICY)")
+    basis_date: Optional[str] = Field(None, description="근거 기준일 (선택)")
+    note: Optional[str] = Field(None, description="부가 설명")
+    url: Optional[str] = Field(None, description="출처 링크 (선택)")
+
+
+class ChatQuickAction(BaseModel):
+    """챗봇 후속 액션"""
+    id: str = Field(..., description="액션 식별자")
+    label: str = Field(..., description="버튼 라벨")
+    action_type: str = Field(..., description="NAVIGATE | OPEN_CHAT_QUERY")
+    route: Optional[str] = Field(None, description="앱 내부 라우트")
+    query: Optional[str] = Field(None, description="자동 질의 문구")
+    intent_hint: Optional[str] = Field(None, description="의도 힌트")
+    requested_profile_domains: Optional[list[str]] = Field(None, description="요청 대상 도메인 목록")
+
+
+class ChatClarificationPayload(BaseModel):
+    """재질문(clarification) 안내"""
+    question: str = Field(..., description="재질문 문구")
+    missing_fields: Optional[list[str]] = Field(None, description="누락된 필드 목록")
+    options: Optional[list[ChatQuickAction]] = Field(None, description="선택 옵션 액션")
+
+
+class ChatResponseMeta(BaseModel):
+    """챗봇 UI용 메타데이터 (하위호환 확장)"""
+    request_id: Optional[str] = Field(None, description="요청 추적 ID")
+    response_mode: str = Field(..., description="ANSWER | CLARIFY | FALLBACK")
+    intent: Optional[str] = Field(None, description="의도")
+    confidence: Optional[float] = Field(None, description="응답 신뢰도(휴리스틱)")
+    fallback_code: Optional[str] = Field(None, description="FALLBACK 사유 코드")
+    citations: Optional[list[ChatResponseCitation]] = Field(None, description="출처 라벨 목록")
+    follow_up_questions: Optional[list[str]] = Field(None, description="후속 질문 제안")
+    quick_actions: Optional[list[ChatQuickAction]] = Field(None, description="빠른 액션")
+    clarification: Optional[ChatClarificationPayload] = Field(None, description="재질문 payload")
+
+
 class ChatResponse(BaseModel):
     """챗봇 응답 모델"""
     reply: str = Field(..., description="AI 응답 메시지")
     session_id: str = Field(..., description="세션 ID")
     timestamp: str = Field(..., description="응답 시각")
+    meta: Optional[ChatResponseMeta] = Field(None, description="챗봇 UI 메타데이터")
 
 
 class HealthCheckResponse(BaseModel):
@@ -289,6 +331,421 @@ def get_or_create_session(session_id: Optional[str]) -> str:
 def require_session_api_enabled():
     if not ENABLE_SESSION_API:
         raise HTTPException(status_code=404, detail="Not Found")
+
+
+def _limit_items(items: Optional[list], limit: int) -> Optional[list]:
+    if not items:
+        return None
+    limited = items[:limit]
+    return limited or None
+
+
+def _normalize_intent_for_meta(message: str, intent_hint: Optional[str], requested_profile_domains: Optional[Iterable[str]]) -> str:
+    normalized_intent = (intent_hint or "").strip().upper()
+    if normalized_intent:
+        if normalized_intent in {"GROWTH", "GROWTH_QUERY"}:
+            return "GROWTH_CHECK"
+        if normalized_intent == "ALLERGY_QUERY":
+            return "ALLERGY"
+        return normalized_intent
+
+    if _looks_like_growth_check(message, intent_hint):
+        return "GROWTH_CHECK"
+
+    normalized_domains = [str(item).strip().lower() for item in (requested_profile_domains or []) if str(item).strip()]
+    if "medical" in normalized_domains or "allergy" in normalized_domains:
+        return "MEDICAL"
+    if "vaccination" in normalized_domains:
+        return "VACCINATION"
+    if "sleep" in normalized_domains:
+        return "SLEEP"
+    if "feeding" in normalized_domains:
+        return "FEEDING"
+    if "development" in normalized_domains:
+        return "DEVELOPMENT"
+    if "routine" in normalized_domains:
+        return "ROUTINE"
+
+    normalized_text = (message or "").replace(" ", "")
+    if any(keyword in normalized_text for keyword in ["예방접종", "백신", "접종"]):
+        return "VACCINATION"
+    if any(keyword in normalized_text for keyword in ["수면", "낮잠", "취침", "기상"]):
+        return "SLEEP"
+    if any(keyword in normalized_text for keyword in ["이유식", "수유", "식단", "분유"]):
+        return "FEEDING"
+    if any(keyword in normalized_text for keyword in ["발달", "마일스톤"]):
+        return "DEVELOPMENT"
+    if any(keyword in normalized_text for keyword in ["어린이집", "달빛어린이병원", "병원찾아", "주말병원", "야간병원"]):
+        return "AUTO"
+    if any(keyword in normalized_text for keyword in ["열", "증상", "병원", "약", "응급", "알레르기"]):
+        return "MEDICAL"
+    return "AUTO"
+
+
+def _contains_location_hint(message: str) -> bool:
+    text = str(message or "").strip()
+    if not text:
+        return False
+
+    # 광역/행정구역 패턴을 느슨하게 탐지
+    if re.search(r"(서울|부산|대구|인천|광주|대전|울산|세종|제주)", text):
+        return True
+    if re.search(r"[가-힣]{2,}(시|도|구|군|동|읍|면)\b", text):
+        return True
+    return False
+
+
+def _detect_location_search_kind(message: str) -> Optional[str]:
+    normalized = (message or "").replace(" ", "")
+    if "어린이집" in normalized:
+        return "CHILDCARE_CENTER"
+    if "달빛어린이병원" in normalized or ("달빛" in normalized and "병원" in normalized):
+        return "MOONLIGHT_HOSPITAL"
+    if ("야간" in normalized or "주말" in normalized) and "병원" in normalized:
+        return "MOONLIGHT_HOSPITAL"
+    return None
+
+
+def _build_quick_action(
+    action_id: str,
+    label: str,
+    action_type: str,
+    route: Optional[str] = None,
+    query: Optional[str] = None,
+    intent_hint: Optional[str] = None,
+    requested_profile_domains: Optional[list[str]] = None,
+) -> ChatQuickAction:
+    return ChatQuickAction(
+        id=action_id,
+        label=label,
+        action_type=action_type,
+        route=route,
+        query=query,
+        intent_hint=intent_hint,
+        requested_profile_domains=_limit_items(requested_profile_domains, 3)
+    )
+
+
+def _build_follow_up_questions(intent: Optional[str], response_mode: str) -> Optional[list[str]]:
+    if response_mode == "FALLBACK":
+        return _limit_items([
+            "짧게 다시 질문해 주실래요?",
+            "아이 월령/상황을 함께 알려주실래요?",
+            "다른 육아 질문으로 도와드릴까요?"
+        ], 3)
+
+    normalized_intent = (intent or "AUTO").upper()
+    mapping = {
+        "VACCINATION": [
+            "접종 후 주의사항도 알려드릴까요?",
+            "다음 접종 일정을 캘린더에 정리해볼까요?"
+        ],
+        "GROWTH_CHECK": [
+            "최근 측정값 기준으로 다시 설명해드릴까요?",
+            "또래 평균과 함께 쉽게 정리해드릴까요?"
+        ],
+        "SLEEP": [
+            "낮잠/밤잠 루틴 예시도 알려드릴까요?",
+            "수면 기록 기반으로 조정 포인트를 볼까요?"
+        ],
+        "FEEDING": [
+            "월령별 식단 예시도 드릴까요?",
+            "알레르기 주의 식품도 같이 볼까요?"
+        ],
+        "MEDICAL": [
+            "응급 신호 체크리스트도 안내해드릴까요?",
+            "병원 방문 전 확인할 내용을 정리해드릴까요?"
+        ],
+    }
+    return _limit_items(mapping.get(normalized_intent, [
+        "같은 주제로 더 구체적으로 질문해보실래요?",
+        "아이 월령/상황을 알려주시면 더 맞춤형으로 답변할 수 있어요."
+    ]), 3)
+
+
+def _build_default_quick_actions(
+    response_mode: str,
+    intent: Optional[str],
+    original_message: Optional[str] = None
+) -> Optional[list[ChatQuickAction]]:
+    normalized_intent = (intent or "AUTO").upper()
+
+    if response_mode == "FALLBACK":
+        actions = [
+            _build_quick_action(
+                "retry_last",
+                "다시 시도",
+                "OPEN_CHAT_QUERY",
+                query=(original_message or "").strip() or "다시 알려줘",
+                intent_hint=None
+            ),
+            _build_quick_action(
+                "open_guide",
+                "가이드 보기",
+                "NAVIGATE",
+                route="/guide"
+            ),
+            _build_quick_action(
+                "ask_sleep_example",
+                "수면 질문 예시",
+                "OPEN_CHAT_QUERY",
+                query="지금 월령 수면 루틴 예시 알려줘",
+                intent_hint="SLEEP",
+                requested_profile_domains=["sleep", "routine"]
+            ),
+        ]
+        return _limit_items(actions, 3)
+
+    if response_mode == "CLARIFY":
+        # clarification.options와 중복되더라도 1차에서는 UX 일관성을 위해 1개만 추가
+        if normalized_intent == "GROWTH_CHECK":
+            return _limit_items([
+                _build_quick_action("open_record", "성장 기록 화면 열기", "NAVIGATE", route="/record")
+            ], 3)
+        return None
+
+    if normalized_intent == "VACCINATION":
+        actions = [
+            _build_quick_action("open_calendar", "캘린더 열기", "NAVIGATE", route="/calendar"),
+            _build_quick_action(
+                "ask_vaccine_notice",
+                "주의사항 물어보기",
+                "OPEN_CHAT_QUERY",
+                query="예방접종 후 주의사항 알려줘",
+                intent_hint="VACCINATION",
+                requested_profile_domains=["vaccination", "medical"]
+            ),
+        ]
+    elif normalized_intent == "GROWTH_CHECK":
+        actions = [
+            _build_quick_action("open_record", "성장 기록 화면 열기", "NAVIGATE", route="/record"),
+            _build_quick_action(
+                "ask_growth_summary",
+                "쉽게 다시 설명",
+                "OPEN_CHAT_QUERY",
+                query="성장 분석 결과를 쉽게 다시 설명해줘",
+                intent_hint="GROWTH_CHECK",
+                requested_profile_domains=["growth"]
+            ),
+        ]
+    elif normalized_intent in {"SLEEP", "FEEDING"}:
+        actions = [
+            _build_quick_action("open_record", "기록 화면 열기", "NAVIGATE", route="/record"),
+            _build_quick_action(
+                "ask_next_step",
+                "실행 방법 물어보기",
+                "OPEN_CHAT_QUERY",
+                query="오늘 바로 적용할 수 있게 3단계로 알려줘",
+                intent_hint=normalized_intent
+            ),
+        ]
+    else:
+        actions = [
+            _build_quick_action("open_dashboard", "대시보드 보기", "NAVIGATE", route="/dashboard"),
+            _build_quick_action("open_guide", "가이드 보기", "NAVIGATE", route="/guide"),
+        ]
+
+    return _limit_items(actions, 3)
+
+
+def _build_citations(
+    message: str,
+    reply: str,
+    intent: Optional[str],
+    requested_profile_domains: Optional[list[str]],
+    profile_context: Optional[str],
+    growth_context: Optional[Dict[str, Any]],
+) -> Optional[list[ChatResponseCitation]]:
+    citations: list[ChatResponseCitation] = []
+
+    if isinstance(growth_context, dict) and growth_context:
+        data_source = growth_context.get("data_source")
+        basis_date = growth_context.get("measured_date")
+        citations.append(
+            ChatResponseCitation(
+                label="성장 기록/측정 정보",
+                source_type="GROWTH_HISTORY",
+                basis_date=str(basis_date) if basis_date else None,
+                note=f"data_source={data_source}" if data_source else "저장된 성장 기록 기반"
+            )
+        )
+
+    if profile_context and profile_context.strip():
+        citations.append(
+            ChatResponseCitation(
+                label="자녀 프로필 저장 정보",
+                source_type="PROFILE",
+                basis_date=None,
+                note="자녀 저장 정보 기반"
+            )
+        )
+
+    search_kind = _detect_location_search_kind(message)
+    if search_kind:
+        citations.append(
+            ChatResponseCitation(
+                label="공공/외부 검색 결과",
+                source_type="PUBLIC_API",
+                note="검색 도구 결과를 바탕으로 정리"
+            )
+        )
+    else:
+        normalized_intent = (intent or "AUTO").upper()
+        if normalized_intent not in {"GROWTH_CHECK"}:
+            citations.append(
+                ChatResponseCitation(
+                    label="내부 육아 지식베이스",
+                    source_type="KNOWLEDGE_BASE",
+                    note="내부 지식베이스 및 도구 기반"
+                )
+            )
+
+    if any(token in (reply or "") for token in ["의학적 조언", "전문의", "응급", "주의"]):
+        citations.append(
+            ChatResponseCitation(
+                label="안전 가드레일",
+                source_type="SYSTEM_POLICY",
+                note="안전/의료 안내 규칙 적용"
+            )
+        )
+
+    # 중복 제거 (source_type + label 기준)
+    deduped: list[ChatResponseCitation] = []
+    seen = set()
+    for item in citations:
+        key = (item.source_type, item.label, item.basis_date)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+
+    return _limit_items(deduped, 3)
+
+
+def _build_answer_meta(
+    request_id: str,
+    payload: ChatRequest,
+    reply: str,
+    requested_profile_domains: Optional[list[str]],
+    profile_context: Optional[str],
+    growth_context: Optional[Dict[str, Any]],
+) -> Optional[ChatResponseMeta]:
+    if not AI_CHAT_META_ENABLED:
+        return None
+
+    intent = _normalize_intent_for_meta(payload.message, payload.intent_hint, requested_profile_domains)
+    confidence = 0.66
+    if intent == "GROWTH_CHECK" and _is_growth_context_ready(growth_context):
+        confidence = 0.86
+    elif intent in {"SLEEP", "FEEDING", "VACCINATION", "DEVELOPMENT", "ROUTINE"}:
+        confidence = 0.72
+    elif intent == "MEDICAL":
+        confidence = 0.64
+
+    return ChatResponseMeta(
+        request_id=request_id,
+        response_mode="ANSWER",
+        intent=intent,
+        confidence=confidence,
+        citations=_build_citations(
+            message=payload.message,
+            reply=reply,
+            intent=intent,
+            requested_profile_domains=requested_profile_domains,
+            profile_context=profile_context,
+            growth_context=growth_context
+        ),
+        follow_up_questions=_build_follow_up_questions(intent, "ANSWER"),
+        quick_actions=_build_default_quick_actions("ANSWER", intent, original_message=payload.message),
+    )
+
+
+def _build_fallback_meta(
+    request_id: str,
+    payload: ChatRequest,
+    fallback_code: str,
+) -> Optional[ChatResponseMeta]:
+    if not AI_CHAT_META_ENABLED:
+        return None
+
+    intent = _normalize_intent_for_meta(payload.message, payload.intent_hint, payload.requested_profile_domains)
+    return ChatResponseMeta(
+        request_id=request_id,
+        response_mode="FALLBACK",
+        intent=intent,
+        fallback_code=fallback_code,
+        quick_actions=_build_default_quick_actions("FALLBACK", intent, original_message=payload.message),
+        follow_up_questions=_build_follow_up_questions(intent, "FALLBACK"),
+        citations=_limit_items([
+            ChatResponseCitation(
+                label="시스템 오류 처리",
+                source_type="SYSTEM_POLICY",
+                note="안정성 폴백 응답"
+            )
+        ], 3)
+    )
+
+
+def _build_location_clarify_response(
+    request_id: str,
+    payload: ChatRequest,
+    requested_profile_domains: Optional[list[str]]
+) -> Optional[tuple[str, ChatResponseMeta]]:
+    if not AI_CHAT_META_ENABLED:
+        return None
+
+    search_kind = _detect_location_search_kind(payload.message)
+    if not search_kind:
+        return None
+
+    if _contains_location_hint(payload.message):
+        return None
+
+    if search_kind == "CHILDCARE_CENTER":
+        reply = "어느 지역의 어린이집을 찾으시나요? 시/구(예: 서울 강남구)를 알려주시면 더 정확히 찾아드릴게요."
+        example_query = "서울 강남구 어린이집 찾아줘"
+    else:
+        reply = "어느 지역 병원을 찾으시나요? 시/구(예: 서울 강남구)를 알려주시면 달빛어린이병원을 찾아드릴게요."
+        example_query = "서울 강남구 달빛어린이병원 찾아줘"
+
+    intent = _normalize_intent_for_meta(payload.message, payload.intent_hint, requested_profile_domains)
+    options = _limit_items([
+        _build_quick_action(
+            "fill_location_example",
+            "예시 질문 넣기",
+            "OPEN_CHAT_QUERY",
+            query=example_query,
+            intent_hint=intent if intent != "AUTO" else None,
+            requested_profile_domains=requested_profile_domains,
+        ),
+        _build_quick_action(
+            "open_guide",
+            "가이드 보기",
+            "NAVIGATE",
+            route="/guide"
+        )
+    ], 4)
+
+    meta = ChatResponseMeta(
+        request_id=request_id,
+        response_mode="CLARIFY",
+        intent=intent,
+        clarification=ChatClarificationPayload(
+            question="어느 지역 기준으로 찾을까요?",
+            missing_fields=["location"],
+            options=options
+        ),
+        quick_actions=_build_default_quick_actions("CLARIFY", intent, original_message=payload.message),
+        follow_up_questions=_build_follow_up_questions(intent, "CLARIFY"),
+        citations=_limit_items([
+            ChatResponseCitation(
+                label="검색 조건 확인",
+                source_type="SYSTEM_POLICY",
+                note="지역 정보가 필요해요"
+            )
+        ], 3)
+    )
+    return reply, meta
 
 
 # ========================================
@@ -846,6 +1303,26 @@ async def chat(
                     f"{payload.child_id}: {str(ex)}"
                 )
 
+        location_clarify = _build_location_clarify_response(
+            request_id=request_id,
+            payload=payload,
+            requested_profile_domains=resolved_requested_profile_domains
+        )
+        if location_clarify:
+            clarify_reply, clarify_meta = location_clarify
+            session_manager.add_message(session_id, "assistant", clarify_reply)
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.info(
+                f"[request_id={request_id}][session_id={session_id}] chat request completed "
+                f"(elapsed_ms={elapsed_ms}, reply_length={len(clarify_reply)}, response_mode=CLARIFY)"
+            )
+            return ChatResponse(
+                reply=clarify_reply,
+                session_id=session_id,
+                timestamp=datetime.now().isoformat(),
+                meta=clarify_meta
+            )
+
         # 에이전트 비동기 호출
         reply = await agent.achat(
             user_input=payload.message,
@@ -858,16 +1335,32 @@ async def chat(
 
         # AI 응답 기록
         session_manager.add_message(session_id, "assistant", reply)
+        meta = None
+        if AI_CHAT_META_ENABLED:
+            try:
+                meta = _build_answer_meta(
+                    request_id=request_id,
+                    payload=payload,
+                    reply=reply,
+                    requested_profile_domains=resolved_requested_profile_domains,
+                    profile_context=effective_profile_context,
+                    growth_context=effective_growth_context
+                )
+            except Exception as meta_ex:
+                logger.warning(
+                    f"[request_id={request_id}] failed to build answer meta: {type(meta_ex).__name__}: {str(meta_ex)}"
+                )
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         logger.info(
             f"[request_id={request_id}][session_id={session_id}] chat request completed "
-            f"(elapsed_ms={elapsed_ms}, reply_length={len(reply)})"
+            f"(elapsed_ms={elapsed_ms}, reply_length={len(reply)}, response_mode={meta.response_mode if meta else 'ANSWER'})"
         )
 
         return ChatResponse(
             reply=reply,
             session_id=session_id,
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now().isoformat(),
+            meta=meta
         )
 
     except HTTPException:
@@ -890,10 +1383,34 @@ async def chat(
                     f"[request_id={request_id}] fallback append failed "
                     f"(session_id={session_id}, error_type={type(append_error).__name__})"
                 )
+        fallback_code = "UNKNOWN_ERROR"
+        error_type_name = type(e).__name__.upper()
+        if "TIMEOUT" in error_type_name:
+            fallback_code = "TIMEOUT"
+        elif isinstance(e, ValueError):
+            fallback_code = "VALIDATION_ERROR"
+        elif "CONNECTION" in error_type_name:
+            fallback_code = "UPSTREAM_UNAVAILABLE"
+        elif "RUNTIME" in error_type_name:
+            fallback_code = "UPSTREAM_ERROR"
+
+        fallback_meta = None
+        if AI_CHAT_META_ENABLED:
+            try:
+                fallback_meta = _build_fallback_meta(
+                    request_id=request_id,
+                    payload=payload,
+                    fallback_code=fallback_code
+                )
+            except Exception as meta_ex:
+                logger.warning(
+                    f"[request_id={request_id}] failed to build fallback meta: {type(meta_ex).__name__}: {str(meta_ex)}"
+                )
         return ChatResponse(
             reply=fallback_reply,
             session_id=session_id,
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now().isoformat(),
+            meta=fallback_meta
         )
 
 
