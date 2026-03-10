@@ -17,7 +17,8 @@ class StatefulAgent:
         chat_history=None,
         profile_context=None,
         intent_hint=None,
-        growth_context=None
+        growth_context=None,
+        requested_profile_domains=None
     ):
         self.calls.append(
             {
@@ -26,6 +27,7 @@ class StatefulAgent:
                 "profile_context": profile_context,
                 "intent_hint": intent_hint,
                 "growth_context": growth_context,
+                "requested_profile_domains": requested_profile_domains,
             }
         )
         return f"응답 {len(self.calls)}"

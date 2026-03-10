@@ -31,7 +31,7 @@ def analyze_baby_growth(req: GrowthRequest, db: Session = Depends(get_db)):
     아이의 성장을 분석하는 API 엔드포인트
     """
     gender_enum = Gender.MALE if req.gender == 'M' else Gender.FEMALE
-    analyzer = GrowthAnalyzer(db)
+    analyzer = GrowthAnalyzer()
     
     result = analyzer.assess_growth(
         gender=gender_enum,

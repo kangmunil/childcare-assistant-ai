@@ -750,6 +750,64 @@ class ChildcareAgent:
 
         return "\n".join(lines)
 
+    def _sanitize_analysis_tool_display(self, line: str) -> str:
+        match = re.match(r"^\s*(?:🔍\s*)?(?:분석\s*도구|분석도구)\s*:\s*(.+?)\s*$", line)
+        if not match:
+            return line
+
+        payload = match.group(1).strip()
+        func_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)$", payload)
+        if not func_match:
+            return "🔍 분석 참고: 성장/발달 분석 도구를 사용해 결과를 확인했어요."
+
+        tool_name = func_match.group(1).lower()
+        args_text = func_match.group(2).strip()
+
+        if tool_name not in {"analyze_growth", "analyzegrowth"}:
+            return "🔍 분석 참고: 내부 분석 도구를 사용해 결과를 확인했어요."
+
+        arg_labels = []
+        if args_text:
+            for raw_part in [p.strip() for p in args_text.split(",") if p.strip()]:
+                if "=" not in raw_part:
+                    continue
+
+                key, value = [s.strip() for s in raw_part.split("=", 1)]
+                key = key.lower()
+                value = value.strip("'\"")
+
+                if key == "gender":
+                    if value.upper() == "M":
+                        arg_labels.append("성별 남아")
+                    elif value.upper() == "F":
+                        arg_labels.append("성별 여아")
+                    else:
+                        arg_labels.append(f"성별 {value}")
+                elif key in {"birthdate", "birth_date"}:
+                    arg_labels.append(f"생년월일 {value}")
+                elif key == "height":
+                    arg_labels.append(f"키 {value}cm")
+                elif key == "weight":
+                    arg_labels.append(f"몸무게 {value}kg")
+                elif key == "head_circ":
+                    arg_labels.append(f"머리둘레 {value}cm")
+
+        if arg_labels:
+            return (
+                "🔍 분석 참고: 성장 백분위 계산 도구를 사용했어요. "
+                f"(입력값: {', '.join(arg_labels)})"
+            )
+
+        return "🔍 분석 참고: 성장 백분위 계산 도구를 사용했어요."
+
+    def _sanitize_user_facing_output(self, text: str) -> str:
+        if not text:
+            return text
+
+        lines = text.splitlines()
+        sanitized_lines = [self._sanitize_analysis_tool_display(line) for line in lines]
+        return "\n".join(sanitized_lines)
+
     def chat(
         self,
         user_input: str,
@@ -810,6 +868,8 @@ class ChildcareAgent:
                 warning_msg = "\n".join(assessment.warnings)
                 ai_output = f"⚠️ [주의] {warning_msg}\n\n{ai_output}"
 
+            ai_output = self._sanitize_user_facing_output(ai_output)
+
             # 3. 출력 안전 검사 (면책 조항, 마스킹 등)
             is_health = any(kw in user_input for kw in ["열", "아파요", "질병", "약", "병원", "증상", "먹여도"])
             safe_output = safety_manager.process_output_safety(ai_output, is_health_related=is_health)
@@ -869,6 +929,8 @@ class ChildcareAgent:
             if assessment.action_type == "WARN_AND_ANSWER":
                 warning_msg = "\n".join(assessment.warnings)
                 ai_output = f"⚠️ [주의] {warning_msg}\n\n{ai_output}"
+
+            ai_output = self._sanitize_user_facing_output(ai_output)
 
             is_health = any(kw in user_input for kw in ["열", "아파요", "질병", "약", "병원", "증상", "먹여도"])
             safe_output = safety_manager.process_output_safety(ai_output, is_health_related=is_health)

@@ -247,6 +247,18 @@ curl -X POST "http://localhost:8000/chat" \
 - `APP_ENV`: `development|production` (기본: `production`)
 - `AI_ALLOWED_ORIGINS`: CORS 허용 origin 목록(콤마 구분)
 - `ENABLE_SESSION_API`: `true|false` (`/sessions/*` 노출 제어, 기본은 dev=true / prod=false)
+- `AI_CHAT_META_ENABLED`: 챗봇 응답 `meta` 생성 여부 (`true|false`, 기본 `true`)
+
+### 4. 챗봇 API 테스트 (가상환경 기준)
+
+로컬 전역 Python 대신 프로젝트 가상환경(`.venv`) 경로를 사용합니다.
+
+```bash
+./.venv/bin/python -m unittest \
+  tests.test_chatbot_api_error_fallback \
+  tests.test_chatbot_api_session_continuity \
+  tests.test_chatbot_api_location_clarify
+```
 
 전체 예제:
 ```bash

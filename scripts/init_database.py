@@ -1,15 +1,18 @@
 import pandas as pd
 import sqlite3
 import os
+from pathlib import Path
 
-DB_PATH = "data/childcare.db"
-EXCEL_PATH = "babyData/성장도표+데이터+테이블.xls"
-SCHEMA_PATH = "scripts/create_tables.sql"
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+DB_PATH = PROJECT_ROOT / "data" / "childcare.db"
+EXCEL_PATH = PROJECT_ROOT / "babyData" / "성장도표+데이터+테이블.xls"
+SCHEMA_PATH = SCRIPT_DIR / "create_tables.sql"
 
 def init_db():
-    os.makedirs("data", exist_ok=True)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
-    with open(SCHEMA_PATH, 'r') as f:
+    with open(SCHEMA_PATH, 'r', encoding='utf-8') as f:
         conn.executescript(f.read())
     return conn
 

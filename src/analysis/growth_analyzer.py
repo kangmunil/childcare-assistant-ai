@@ -3,14 +3,104 @@ import numpy as np
 from scipy.stats import norm
 from typing import Dict, Any, Optional
 from datetime import date
+from pathlib import Path
 from loguru import logger
 
 class GrowthAnalyzer:
-    def __init__(self, db_path: str = "data/childcare.db"):
-        self.db_path = db_path
+    _GROWTH_STANDARDS_SCHEMA_SQL = """
+    CREATE TABLE IF NOT EXISTS growth_standards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chart_type TEXT NOT NULL,
+        gender INTEGER NOT NULL,
+        age_months REAL,
+        height_cm REAL,
+        l REAL,
+        m REAL,
+        s REAL,
+        p1 REAL,
+        p3 REAL,
+        p5 REAL,
+        p10 REAL,
+        p15 REAL,
+        p25 REAL,
+        p50 REAL,
+        p75 REAL,
+        p85 REAL,
+        p90 REAL,
+        p95 REAL,
+        p97 REAL,
+        p99 REAL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_growth_standards_type_gender
+        ON growth_standards(chart_type, gender);
+    """
+
+    def __init__(self, db_path: str | Path | None = None):
+        project_root = Path(__file__).resolve().parents[2]
+        resolved = Path(db_path) if db_path else (project_root / "data" / "childcare.db")
+        if not resolved.is_absolute():
+            resolved = project_root / resolved
+
+        self.db_path = str(resolved)
+        self._growth_table_checked = False
+        self._growth_table_has_data = False
 
     def _get_conn(self):
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         return sqlite3.connect(self.db_path)
+
+    def _normalize_gender(self, gender: Any) -> Any:
+        """
+        int(1/2), str(M/F), Enum(Gender.MALE/FEMALE) 입력을 모두 지원한다.
+        """
+        if isinstance(gender, int):
+            return gender
+
+        value = getattr(gender, "value", gender)
+        if isinstance(value, str):
+            upper = value.upper()
+            if upper == "M":
+                return 1
+            if upper == "F":
+                return 2
+
+        return gender
+
+    def _ensure_growth_standards_ready(self) -> bool:
+        """
+        성장 기준 테이블 스키마를 보장하고, 실제 데이터 적재 여부를 캐시한다.
+        """
+        if self._growth_table_checked:
+            return self._growth_table_has_data
+
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.executescript(self._GROWTH_STANDARDS_SCHEMA_SQL)
+            conn.commit()
+
+            cursor.execute("SELECT 1 FROM growth_standards LIMIT 1")
+            self._growth_table_has_data = cursor.fetchone() is not None
+            self._growth_table_checked = True
+
+            if not self._growth_table_has_data:
+                logger.warning(
+                    "growth_standards table is present but empty. "
+                    "Load growth standards data before running growth analysis. "
+                    f"(db_path={self.db_path})"
+                )
+        except Exception as e:
+            self._growth_table_checked = True
+            self._growth_table_has_data = False
+            logger.error(f"Error initializing growth_standards table: {e}")
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+        return self._growth_table_has_data
 
     def calculate_age_in_months(self, birth_date: date, measured_date: date = None) -> float:
         """
@@ -26,6 +116,9 @@ class GrowthAnalyzer:
         """
         DB에서 가장 가까운 월령/신장의 LMS 파라미터를 조회합니다.
         """
+        if not self._ensure_growth_standards_ready():
+            return None
+
         conn = self._get_conn()
         cursor = conn.cursor()
         
@@ -108,6 +201,7 @@ class GrowthAnalyzer:
         """
         종합 성장 분석 수행
         """
+        gender = self._normalize_gender(gender)
         warnings = []
         if measured_date is None:
             measured_date = date.today()
@@ -120,6 +214,15 @@ class GrowthAnalyzer:
             "warnings": warnings,
             "status": "success"
         }
+
+        if not self._ensure_growth_standards_ready():
+            results["status"] = "error"
+            results["error_code"] = "growth_standards_not_loaded"
+            results["message"] = (
+                "성장 기준 데이터가 아직 초기화되지 않았습니다. "
+                "childcare-assistant-ai/scripts/init_database.py로 growth_standards 데이터를 먼저 적재해주세요."
+            )
+            return results
 
         # 1. 연령별 신장
         if height:
