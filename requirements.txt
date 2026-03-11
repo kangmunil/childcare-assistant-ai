@@ -1,48 +1,51 @@
-pandas>=2.0.0
-sqlalchemy>=2.0.0
-openpyxl>=3.1.0
-pydantic>=2.0.0
-python-dotenv>=1.0.0
+pandas>=2.2.3,<3.0.0
+sqlalchemy>=2.0.38,<3.0.0
+openpyxl>=3.1.5,<4.0.0
+pydantic>=2.10.6,<3.0.0
+pydantic-settings>=2.7.1,<3.0.0
+python-dotenv>=1.0.1,<2.0.0
 
 # Supabase
-supabase>=2.0.0
+supabase>=2.15.0,<3.0.0
 
-# HTTP Requests (공공 API 호출)
-requests>=2.31.0
-httpx>=0.25.0
+# HTTP
+requests>=2.32.3,<3.0.0
+httpx>=0.28.1,<1.0.0
 
-# 데이터 처리
-scipy>=1.11.0  # Z-Score 백분위수 계산
-numpy>=1.24.0
+# Data processing
+scipy>=1.15.2,<2.0.0
+numpy>=2.2.3,<3.0.0
 
-# 크롤링 (선택사항)
-beautifulsoup4>=4.12.0
-selenium>=4.15.0
+# Optional collection helpers
+beautifulsoup4>=4.13.3,<5.0.0
+selenium>=4.29.0,<5.0.0
 
-# 로깅
-loguru>=0.7.0
+# Logging
+loguru>=0.7.3,<1.0.0
 
 # LangChain & RAG
-langchain>=0.1.0
-langchain-openai>=0.0.5
-langchain-community>=0.0.20
-langchain-core>=0.1.0
+langchain>=0.3.21,<0.4.0
+langchain-openai>=0.3.8,<0.4.0
+langchain-community>=0.3.20,<0.4.0
+langchain-core>=0.3.45,<0.4.0
 
-# Vector Database
-chromadb>=0.4.22
-pgvector>=0.2.4
+# Vector database
+chromadb>=0.6.3,<0.7.0
+pgvector>=0.3.6,<0.4.0
 
 # Embeddings
-openai>=1.10.0
-sentence-transformers>=2.3.0
+openai>=1.66.3,<2.0.0
+sentence-transformers>=3.4.1,<4.0.0
 
-# FastAPI (챗봇 API)
-fastapi>=0.109.0
-uvicorn>=0.27.0
-pydantic>=2.5.0
-python-multipart>=0.0.6
+# FastAPI
+fastapi>=0.115.11,<1.0.0
+uvicorn>=0.34.0,<1.0.0
+python-multipart>=0.0.20,<0.1.0
 
-# Text Processing
-tiktoken>=0.5.2
-unstructured>=0.12.0
-markdown>=3.5.0
+# Text processing
+tiktoken>=0.9.0,<1.0.0
+unstructured>=0.17.2,<0.18.0
+markdown>=3.7,<4.0.0
+
+chardet<6.0.0
+
